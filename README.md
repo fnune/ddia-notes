@@ -280,7 +280,47 @@ may require.
 
 #### Data structures that power your database
 
+An example database engine implemented with just two Bash scripts `db_set` and `db_get` is used for
+illustration purposes. This engine appends to a file when `db_set` is called with a key-value pair,
+and looks up a value when `db_get` is called with a key.
+
+Appending to it is cheap, but looking up a value is expensive: the engine needs to scan the whole
+file to do this every time we call `db_get`.
+
+In order to look up values in our database efficiently, we need an _index_. Indexes are separate,
+auxiliary structures that act as sign posts, speeding up reads. But there's a trade-off: since
+indexes need to be updated when new data gets written to the database, the presence of indexes may
+also slow down writes.
+
 ##### Hash indexes
+
+A hash index resembles a hash map. With the example `db_get`, `db_set` database engine described
+above, our hash index could live in memory and contain every key in the database, mapped to a byte
+offset in the database file. The [BitCask storage engine](https://riak.com/assets/bitcask-intro.pdf)
+uses this indexing approach.
+
+To avoid running out of disk space as the database file grows, it can be segmented using a specific
+segment size. Once separated in segments, the database file can go through the processes of _
+compaction_ (the removal of entries for each key if they are not the most recent) and
+_merging_ (concatenating compacted segments together to make them fit into the configured segment
+size).
+
+Compaction and merging can happen in new copies of old segments to allow reading from those old
+segments in the meantime. The redundant old segments can be removed afterward.
+
+Although the design is simple, implementation details matter: the file format (usually binary, not
+text), deletions (append-only data files use a _tombstone_ entry to represent the deletion of a key)
+, crash recovery (persisting the in-memory hash maps to disk), partially-written records (detected
+using, e.g., checksums), and concurrency control (usually avoided by only having one writer thread).
+
+Why not update the file in place instead of writing a new entry every time?
+
+- Sequential writes are faster than random writes.
+- Concurrency and crash recovery are simpler (no overwrites).
+- Merging avoids fragmentation of the data file.
+
+Some disadvantages: the hash index must fit in memory, and querying for a range of keys is
+inefficient.
 
 ##### SSTables and LSM-Trees
 
