@@ -433,19 +433,108 @@ certain [Levenshtein distance](https://en.wikipedia.org/wiki/Levenshtein_distanc
 
 #### Transaction processing or analytics?
 
+_Online transaction processing_ (OLTP) is an access pattern where applications look up a small
+number of records by some key, using an index, and records are written based on user input. What
+matters is the latest state of data, and the dataset is small.
+
+_Online analytic processing_ (OLAP) is the access pattern akin to queries written by business
+analysts, where aggregations are run over many records and thus much more data, and historical
+events matter.
+
 ##### Data warehousing
+
+Enterprises tend to separate their data into separate databases for OLTP and OLAP. The databases
+dedicated to OLAP are called _data warehouses_. Data warehouses can be queried at will because
+they're not expected to be highly available and to perform with low latency like OLTP databases.
+
+A process of populating a data warehouse from the original OLTP database is _
+Extract-Transform-Load_ (ETL).
+
+Although SQL is suitable for querying OLAP databases as well as OLTP databases, certain schemas and
+data models are used commonly in OLAP databases.
 
 ##### Stars and snowflakes: schemas for analytics
 
+The core of an OLAP database is the _facts table_, which contains facts captured as individual
+events, such as order placements.
+
+A _star schema_ consists of a facts table together with _dimension tables_. Dimension tables are
+referred to from entries in the facts table using foreign keys.
+
+A _snowflake schema_ is a variation on the star schema where dimension tables may optionally refer
+to secondary dimension tables, called subdimensions.
+
 #### Column-oriented storage
+
+Fact tables often become very wide, with hundreds of columns. Even so, a typical query accessing the
+facts table will only care about a handful of its columns. The _row-oriented_ fashion in which
+storage is laid out in OLTP databases isn't suitable for this scenario.
+
+Column-oriented storage places the values of each column in a table close together, instead of
+making sure the data in each row is accessible sequentially.
 
 ##### Column compression
 
+Storing the data from each column in sequence opens up possibilities for compression. One such
+possibility is _bitmap encoding_.
+
+In a column `product_id` with values:
+
+```
+10 10 12 8
+```
+
+We could create the following bitmap:
+
+```
+product_id=10: 1 1 0 0
+product_id=12: 0 0 1 0
+product_id=8:  0 0 0 1
+```
+
+This will result in storage usage of one bit per row. The number of order placements in a facts
+table will likely largely exceed the number of `product_id`s in the database. If this is not the
+case and the bitmap ends up with many zeros, we can _run-length-encode_ the bitmap by storing values
+representing zeros and ones in alternating fashion:
+
+```
+product_id=10: 0 2 (no zeros, 2 ones, implicitly all zeros after this)
+product_id=12: 2 1 (2 zeros, 1 one)
+product_id=8:  3 1 (3 zeros, 1 one)
+```
+
+OLAP database developers take into account deep intricacies to increase query efficiency, such as
+chunking compressed data so that it fits in the CPU's L1 cache and iterating through it in a tight
+loop (without function calls).
+
 ##### Sort order in column storage
+
+When using column storage, database administrators may choose to sort data row-wise by the value of
+a certain set of columns. For example, to optimize for queries targeting date ranges, the `date`
+column may be picked as the first sort key.
+
+Columns used as sort keys (especially the first sort key column) can be compressed heavily with
+run-length encoding, because all the ones will be contiguous, and so will the zeros.
+
+Multiple sort orders can be used simultaneously to optimize different sets of queries.
 
 ##### Writing to column-oriented storage
 
+Column-oriented storage makes writes more difficult. If the column is compressed, an insertion in
+the middle requires the rewrite of the rest of the rows.
+
+[LSM-trees](#sstables-and-lsm-trees) are a good solution, because they batch writes before
+persisting to disk.
+
 ##### Aggregation: data cubes and materialized views
+
+A materialized view can be defined as a standard virtual view that has its query results persisted
+to disk. While this can happen on write, it would make writes very taxing, so this is usually
+performed periodically instead.
+
+An [_OLAP cube_](https://en.wikipedia.org/wiki/OLAP_cube) is a materialized view into more than two
+dimension (or a _hypercube_ if more than three). An example of an OLAP cube would be a materialized
+view of total order placements across the dimensions _products_, _cities_ and _date_.
 
 ### Chapter 4: serialization and schema evolution
 
