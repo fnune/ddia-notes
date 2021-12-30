@@ -324,7 +324,7 @@ Why not update the file in place instead of writing a new entry every time?
 Some disadvantages: the hash index must fit in memory, and querying for a range of keys is
 inefficient.
 
-##### SSTables and LSM-Trees
+##### SSTables and LSM-trees
 
 Our segment files from the previous section are sorted in the order in which they were written. An
 SSTable (Sorted String Table) has the additional requirement that its entries be sorted by key.
@@ -342,15 +342,15 @@ Advantages:
 - Records between two keys of the sparse index can be compressed, since read queries must scan over
   all the records in this block anyway.
 
-[B-Trees](#b-trees) can be used to maintain a sorted structure on disk, but it is easier in memory,
+[B-trees](#b-trees) can be used to maintain a sorted structure on disk, but it is easier in memory,
 where red-black trees or AVL trees can be used.
 
-> Note from @fnune: this is because B-Trees tend to have a lower height than AVL or red-black trees, and so require a lower amount of disk reads to find a specific key.
+> Note from @fnune: this is because B-trees tend to have a lower height than AVL or red-black trees, and so require a lower amount of disk reads to find a specific key.
 
 Once this tree structure (also called a _memtable_) grows too big, it can be written to disk using
 an SSTable. Merging and compaction can be scheduled routinely on segment files. To serve a read
 request, read the memtable first, then read segment files from newer to older. This structure is
-also called an [LSM-Tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).
+also called an [LSM-tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).
 
 To prevent data loss in the event of a crash (due to the memtable disappearing) an append-only log
 can be kept on disk to mimic the memtable, but unsorted, to recover from it.
@@ -362,11 +362,74 @@ Common compaction strategies are _size-tiered_ compaction (newer, smaller segmen
 older, larger segments) and _leveled_ compaction (older data is moved into separate "levels" for
 parts of the full key range).
 
-##### B-Trees
+##### B-trees
 
-##### Comparing B-Trees and LSM-Trees
+The indexing structures described earlier organize data into variable-size _segments_. B-trees are
+organized into fixed-size _blocks_ or _pages_, which are read one at a time. This matches the
+underlying hardware closely.
+
+In B-trees, each page contains a continuous range of keys pointing to child pages, and eventually
+leaf pages contain the value for each key.
+
+For example, a B-Tree with a branching factor `m` of 5 indexing items 1 to 100:
+
+- Root page: `[ref C1, 20, ref C2, 40, ref C3, 60, ref C4, 80, ref C5, 100]`
+- Page C1: `[ref C1.1, 4, ref C1.2, 8, ref C1.3, 12, ref C1.4, 16, ref C1.5, 20]`
+
+To look up number 16 you would find `ref C1` on the root page, `ref C1.4` on page `C1`, and
+eventually find 16.
+
+The branching factor in B-trees used in databases is normally several hundred. If a new value were
+to be inserted that would make the page exceed the branching factor, it would be split into two
+half-full pages. The parent page would be updated accordingly. This keeps B-trees balanced.
+
+Pages in B-trees are overwritten when they're updated, but their location remains unchanged (and so
+do references pointing to them).
+
+Because pages are overwritten in place, a _write-ahead log_ (or WAL) is used to make the database
+resilient to crashes. Before writing to a B-tree, databases always write to the WAL. Some databases
+optimize this away by using a copy-on-write scheme to modify pages.
+
+To speed up B-trees, key ranges can be abbreviated to save space (since the magnitude of each page
+is known from traversing each parent), leaf pages can be positioned sequentially on disk, and
+sibling pointers can be added to pages (to avoid having to look up parents in range queries).
+
+##### Comparing B-trees and LSM-trees
+
+LSM-trees are thought to be faster for writes (because B-trees write every piece of data once to the
+WAL and once to the corresponding page), and B-trees faster for reads (because LSM-trees need to
+look up data in the memtable first, and then in segment files by order).
+
+LSM-trees sometimes have lower _write amplification_ (one write resulting in multiple disk writes)
+than B-trees, and so may sustain higher write throughput. They can be compressed better (B-trees
+have up to half of each page empty). However, the compaction process can interfere with read and
+write performance due to limited disk bandwidth.
+
+B-trees favor the locking mechanisms of database implementations: each key exists only once in the
+tree (as opposed to LSM-trees, where keys are replicated across memtable and segment files), so the
+lock can be attached directly to the tree.
 
 ##### Other indexing structures
+
+_Secondary indexes_ are useful for performing joins efficiently. In them, a value may be indexed
+twice, each time with a different key.
+
+In some situations, storing a row value directly in the index (this is known as a _clustered index_)
+can be beneficial if the extra hop from the index to the main row is intolerable.
+
+> Note from @fnune: in clustered indexes, the index values may actually _be the table_, they may be not a secondary copy of the table, but the main one. E.g. [Microsoft SQL Server documentation](https://docs.microsoft.com/en-us/sql/relational-databases/indexes/clustered-and-nonclustered-indexes-described?view=sql-server-ver15) says "there can be only one clustered index per table, because the data rows themselves can be stored in only one order".
+
+Data rows stored in an unordered manner (e.g. not in a clustered index) form a structure called a
+heap.
+
+_Multi-column indexes_ are used to store (among other things) geospatial data, which B-tree or
+LSM-tree indexes cannot access efficiently, by mapping latitude and longitude to a single number and
+then using a regular B-tree index to query that. E-commerce applications may use multi-column
+indexes to query for red t-shirts.
+
+_Full-text and fuzzy indexes_ may be used to query for a definition using synonyms of a word, or
+searching inside a
+certain [Levenshtein distance](https://en.wikipedia.org/wiki/Levenshtein_distance).
 
 #### Transaction processing or analytics?
 
