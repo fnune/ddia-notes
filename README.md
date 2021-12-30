@@ -278,11 +278,13 @@ motivation for an application developer to learn this is that knowing database i
 level can help select a database and fine-tune it for any particular workload that an application
 may require.
 
+Two families of storage engines are presented: _log-structured_ and _page-oriented_ storage engines.
+
 #### Data structures that power your database
 
 An example database engine implemented with just two Bash scripts `db_set` and `db_get` is used for
-illustration purposes. This engine appends to a file when `db_set` is called with a key-value pair,
-and looks up a value when `db_get` is called with a key.
+illustration purposes. This engine appends to a log-structured file when `db_set` is called with a
+key-value pair, and looks up a value when `db_get` is called with a key.
 
 Appending to it is cheap, but looking up a value is expensive: the engine needs to scan the whole
 file to do this every time we call `db_get`.
@@ -323,6 +325,42 @@ Some disadvantages: the hash index must fit in memory, and querying for a range 
 inefficient.
 
 ##### SSTables and LSM-Trees
+
+Our segment files from the previous section are sorted in the order in which they were written. An
+SSTable (Sorted String Table) has the additional requirement that its entries be sorted by key.
+Adding a new entry is no longer immediate due to this requirement (writing to an SSTable is covered
+later).
+
+Advantages:
+
+- Merging segments is easier (with [merge sort](https://en.wikipedia.org/wiki/Merge_sort):
+  look at the nth key of every segment file, take the one with the lowest key into the new merged
+  segment, repeat).
+- To find a key in the file efficiently, you no longer need a hash table with all keys (since the
+  keys are sorted, a sparse index suffices: you can use known offsets like the beginning entries in
+  a segment to start looking at a certain location and stop looking at another).
+- Records between two keys of the sparse index can be compressed, since read queries must scan over
+  all the records in this block anyway.
+
+[B-Trees](#b-trees) can be used to maintain a sorted structure on disk, but it is easier in memory,
+where red-black trees or AVL trees can be used.
+
+> Note from @fnune: this is because B-Trees tend to have a lower height than AVL or red-black trees, and so require a lower amount of disk reads to find a specific key.
+
+Once this tree structure (also called a _memtable_) grows too big, it can be written to disk using
+an SSTable. Merging and compaction can be scheduled routinely on segment files. To serve a read
+request, read the memtable first, then read segment files from newer to older. This structure is
+also called an [LSM-Tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).
+
+To prevent data loss in the event of a crash (due to the memtable disappearing) an append-only log
+can be kept on disk to mimic the memtable, but unsorted, to recover from it.
+
+To optimize access of keys that don't exist in the database,
+a [Bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) may be used.
+
+Common compaction strategies are _size-tiered_ compaction (newer, smaller segments merged into
+older, larger segments) and _leveled_ compaction (older data is moved into separate "levels" for
+parts of the full key range).
 
 ##### B-Trees
 
