@@ -273,6 +273,39 @@ It generalizes triple-stores, writing triples as `predicate(subject, object)`.
 
 ### Chapter 3: storage engines
 
+This chapter discusses how databases store and retrieve data when developers query it. The
+motivation for an application developer to learn this is that knowing database internals at a basic
+level can help select a database and fine-tune it for any particular workload that an application
+may require.
+
+#### Data structures that power your database
+
+##### Hash indexes
+
+##### SSTables and LSM-Trees
+
+##### B-Trees
+
+##### Comparing B-Trees and LSM-Trees
+
+##### Other indexing structures
+
+#### Transaction processing or analytics?
+
+##### Data warehousing
+
+##### Stars and snowflakes: schemas for analytics
+
+#### Column-oriented storage
+
+##### Column compression
+
+##### Sort order in column storage
+
+##### Writing to column-oriented storage
+
+##### Aggregation: data cubes and materialized views
+
 ### Chapter 4: serialization and schema evolution
 
 ## Part 2: Distributed Systems
